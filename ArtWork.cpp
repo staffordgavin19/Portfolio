@@ -4,10 +4,12 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <ctime>
+#include <atomic>
 
 using namespace std;
 
 queue<int> sharedQueue;
+atomic<bool> running(true); // Atomic variable to control the running state
 
 // Condition variables
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -25,15 +27,24 @@ int main() {
     pthread_create(&producerThread, NULL, producer, NULL);
     pthread_create(&consumerThread, NULL, consumer, NULL);
 
+    cout << "Press Enter to stop the program..." << endl;
+    cin.get(); // Wait for user input to stop the program
+
+    running = false; // Signal threads to stop
+
+    pthread_cond_signal(&condConsumer); // Wake up consumer if it's waiting
+    pthread_cond_signal(&condProducer); // Wake up producer if it's waiting
+
     // Join threads
     pthread_join(producerThread, NULL);
     pthread_join(consumerThread, NULL);
 
+    cout << "Program terminated." << endl;
     return 0;
 }
 
 void* producer(void*) {
-    while (true) {
+    while (running) {
         int number = rand() % 10 + 1;
 
         pthread_mutex_lock(&mutex);
@@ -52,24 +63,26 @@ void* producer(void*) {
 }
 
 void* consumer(void*) {
-    while (true) {
+    while (running || !sharedQueue.empty()) { // Check if there's work left
         pthread_mutex_lock(&mutex);
 
-        while (sharedQueue.empty()) {
+        while (sharedQueue.empty() && running) {
             pthread_cond_wait(&condConsumer, &mutex);
         }
 
-        int number = sharedQueue.front();
-        sharedQueue.pop();
-        cout << "Consumed: " << number << endl;
+        if (!sharedQueue.empty()) {
+            int number = sharedQueue.front();
+            sharedQueue.pop();
+            cout << "Consumed: " << number << endl;
 
-
-        for (int i = 0; i < number; ++i) {
-            int x = rand() % 80; // Random X position
-            int y = rand() % 25; // Random Y position
-            char character = rand() % 26 + 'A'; // Random character
-            cout << "\033[" << y << ";" << x << "H" << character << flush; // Print at (x, y)
+            for (int i = 0; i < number; ++i) {
+                int x = rand() % 80; // Random X position
+                int y = rand() % 25; // Random Y position
+                char character = rand() % 26 + 'A'; // Random character
+                cout << "\033[" << y << ";" << x << "H" << character << flush; // Print at (x, y)
+            }
         }
+
         cout << endl;
 
         pthread_mutex_unlock(&mutex);
